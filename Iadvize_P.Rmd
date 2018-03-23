@@ -1,0 +1,235 @@
+---
+title: "Iadvize_Project"
+output: github_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Presentation
+Depuis ces 5 dernières decenies, l'emission du CO2  et des autres gaz à effet de serre ne cesse d'augmenter à travers le monde. Pour certains, cela est necessaire pour maintenir son niveau de developpement, pour d'autres, on ne peut l'éviter pour esperer rentrer dans un processus de developpement. 
+
+Nous allons, à partir des données issues de la banque mondiale, essayer de voir l'évolution de cette emission. 
+
+## Packages
+
+```{r}
+library(rvest)
+library(WDI)
+library(dplyr)
+library(jsonlite)
+library(gridExtra)
+library(FactoMineR)
+library(factoextra)
+library(wesanderson)
+library(explor)
+```
+
+
+```{r}
+var <- WDIsearch('CO2.* emissions')
+# Recupération de la base avec tous les indicateurs
+dat<- WDI(indicator= var[1:25], country= "all", start=1967, end= 2014)
+```
+
+## Constitution de notre base de travail
+
+Dans un premier temps, je prendrai en compte que quelques pays pour essayer de voir les différentes trajectoires de cette évolution. Le choix de ces pays tiennent à leur positionnement géographique et aussi de leur ressemblance en terme de developpement. Nous avons donc pris en compte des pays industrialisés (France, USA), en phase d'industrialisation(Chine, Inde, Brésil) et des pays en voie de developpemnt (Tchad,Cameroun,Gabon). 
+```{r}
+tada <-  WDI(indicator=c('EN.ATM.CO2E.GF.KT','EN.ATM.CO2E.PC',
+                      'EN.ATM.CO2E.KT','EN.CO2.BLDG.ZS', 'EN.CO2.MANF.ZS',
+                      'EN.CO2.TRAN.ZS','EN.CO2.ETOT.ZS'),country=c("FR","US","CN","BR","DE",
+                                                            "CI","CA","CM","CD","GA","GB",
+                                                                   "IN","JP","NG",
+                                                                   "NO","RU","TD"), start=1967, end=2014)
+
+```
+
+## Nous allons renommer les colonnes pour une bonne compréhension
+```{r}
+names(tada) <- c("iso2c","country","year","ECO2_gaz","ECO2_par_hab","CO2_emission",
+                 "ECO2_resid_comm_public","ECO2_manufac_construc","ECO2_transp","ECO2_electr")
+
+names(tada)
+```
+
+## Vérification des données/ Tendances centrales et de dispersion
+```{r}
+str(tada)
+summary(tada)
+```
+
+
+
+##  Visualisation des données: la fonction compGrNorm regroupe trois fonctions (boxplot, densité, qq-norm)
+
+```{r include=FALSE}
+CompGrNorm=function(ech, names=NULL)
+{#Quelques vérifications d'usage.
+ if (missing(ech)) {stop('L\'argument \'ech\' est manquant ; saisir un vecteur numérique')}
+ if (!is.numeric(ech)) {stop('L\'argument \'ech\' doit être un vecteur de type numérique')}
+ #Séparation de la fenêtre graphique en trois zones.
+ zone=matrix(c(1,1,2,3), nrow=2, ncol=2)
+ layout(zone, width=c(1,1.5))
+ #1er graphique dans la partie gauche : la boîte à moustaches
+ boxplot(ech, outline=TRUE, col='gray', outcol=2, outpch=3)
+ #On y ajoute un trait horizontal rouge figurant la moyenne observée.
+ segments(0.8,mean(ech), 1.2, mean(ech), col=2, lwd=2, lty=2)
+ out=boxplot(ech, plot=FALSE)$out #Pour avoir la liste des outliers
+ #Pour ajouter au graphique la liste des points non-outliers
+ if (length(out)!=0)
+ {points(rep(1, length(ech[!ech%in%out])), 
+         ech[!ech%in%out], pch=16, col=1)
+  points(rep(1, length(ech[ech%in%out])), 
+         ech[ech%in%out], pch=3, col=2)
+  if (is.character(names) & length(names)==length(ech))
+  {text(1, out, labels=names[which(ech%in%out)], pos=4)}
+  else {text(1, out, labels=which(ech%in%out), pos=4)}
+ }
+ else
+ {points(rep(1, length(ech)), ech, pch=16, col=1)}
+ #Estimation de la densité par noyau
+ plot(density(ech))
+ m=min(ech)
+ M=max(ech)
+ E=M-m
+ lines(seq(m-E*0.5, M+E*0.5, by=E/100), dnorm(seq(m-E*0.5, M+E*0.5, by=E/100), mean(ech), sd(ech)),
+       col=2, lwd=2, lty=2)
+ legend('topright', c('Estimée', 'Normale'), col=1:2, lwd=1:2, lty=1:2)
+ #Droite de Henri
+ qqnorm(ech, pch=3, xlab='Quantiles théoriques', ylab='Quantiles observés')
+ qqline(ech, col=2, lwd=2, lty=2)
+ par(mfrow=c(1,1))
+}
+
+```
+
+
+
+```{r}
+tada[is.na(tada)]<- 0
+
+CompGrNorm(tada$ECO2_gaz) # normalité rejté et defaut de symétrie 
+CompGrNorm(tada$ECO2_par_hab)
+CompGrNorm(tada$CO2_emission)
+CompGrNorm(tada$ECO2_resid_comm_public)
+CompGrNorm(tada$ECO2_manufac_construc)
+CompGrNorm(tada$ECO2_transp)
+CompGrNorm(tada$ECO2_electr)
+```
+Nous avons donc ici une reprensation de,la distribution de nos variables 
+
+Nous allons procedé a quelques tests de corrélations
+
+```{r}
+cor.test(tada$ECO2_gaz, tada$ECO2_par_hab, alternative = "greater", method = "pearson")
+cor.test(tada$ECO2_gaz, tada$ECO2_electr, alternative = "greater", method = "pearson")
+cor.test(tada$ECO2_gaz, tada$ECO2_transp, alternative = "greater", method = "pearson")
+cor.test(tada$ECO2_electr, tada$ECO2_transp, alternative = "greater", method = "pearson")
+cor.test(tada$ECO2_gaz, tada$ECO2_manufac_construc, alternative = "greater", method = "pearson")
+cor.test(tada$ECO2_gaz, tada$ECO2_resid_comm_public, alternative = "greater", method = "pearson")
+
+```
+
+## Répresentation graphique de l'évolution de l'émission en fonction des variables 
+
+```{r}
+ggplot(tada, aes(year, ECO2_gaz, color=country)) +geom_point()+geom_smooth()
+ggplot(tada, aes(year, ECO2_par_hab, color=country)) + geom_point()+geom_smooth()
+ggplot(tada, aes(year,CO2_emission, color=country)) + geom_point()+geom_smooth()
+ggplot(tada, aes(year,ECO2_resid_comm_public, color=country)) + geom_point()+geom_smooth()
+ggplot(tada, aes(year,ECO2_manufac_construc, color=country)) + geom_point()+geom_smooth()
+ggplot(tada, aes(year,tada$ECO2_transp, color=country)) + geom_point()+geom_smooth()
+ggplot(tada, aes(year,tada$ECO2_electr, color=country)) + geom_point()+geom_smooth()
+
+```
+
+Si l'on regarde l'émission du CO2 par habitant, nous constatons que les USA et la Chine domine largemen le debat, et ce, depuis les années 90. La Chine depasse les USA à partir de 2005 et devient ainsi le premier pays qui emet le plus. La Russie et le Japon viennent compléter le podium. Nous remarquons également que les pays en voie de developpement ont un comportement similaire en cette matière et emettent nettement moins par rapport aux autres pays. 
+
+les trajjectoires ne sont pas les memes si ont prend en compte les autres variables. 
+
+Nous pouvons dire, qu'en fonction de la variable choisie, l'évolution n'est pas la meme.Par exemple, si on considère les emissions liées au gaz, la Russie depasse largement la Chine meme s'il ya un petit decrochage depuis 2010. 
+
+
+## Analyse Fcatorielle
+
+Nous allons maintenant essayer de faire une acp sur nos données. Nous avons decidé de rajouter d'autres pays pour la réalisation de l'acp
+```{r}
+DPCA <-  WDI(indicator=c('EN.ATM.CO2E.GF.KT','EN.ATM.CO2E.PC',
+                         'EN.ATM.CO2E.KT','EN.CO2.BLDG.ZS', 'EN.CO2.MANF.ZS',
+                         'EN.CO2.TRAN.ZS','EN.CO2.ETOT.ZS'),country=c("FR","US","CN","BE","BI","BJ","BR","BY","CF","DE","CZ","CH",
+                                                        "CI","DJ","CA","CM","DZ","CD","CU","EG","GA","GB","GH","GN",
+                                                                      "GQ","GR","IN","IT","JP","KE","KR","MA","ML","MZ","NG","NE",
+                                                                      "NO","RU","SD","SE","ZA","TD"), start=1967, end=2014)
+
+DPCA[is.na(DPCA)]<- 0
+DPCA<- as.data.frame(DPCA)
+
+names(DPCA) <- c("iso2c","country","year","ECO2_gaz","ECO2_par_hab","CO2_emission",
+                 "ECO2_resid_comm_public","ECO2_manufac_construc","ECO2_transp","ECO2_electr")
+```
+
+
+```{r eval=FALSE}
+acp <- PCA(DPCA[,-c(1:4)],scale.unit = TRUE,  ncp = 5, graph = FALSE)
+val.prop<- get_eigenvalue(acp) 
+```
+
+```{r eval=FALSE}
+fviz_eig(acp, addlabels = TRUE, ylim = c(0, 50)) #Nous pouvons garder 3 axes, representant 76% de l'info 
+
+```
+Nous pouvons retenir 3 axes. 
+
+
+
+```{r eval=FALSE}
+var <- get_pca_var(acp)
+fviz_pca_var(acp, axes=c(2,3),col.var = "co2",
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"))
+
+```
+
+Voici une representaion des variables.
+Nous avons constater un effet de taille sur l'axe 1. Raison pour laquelle, on s'interesse à ce qui se passe sur l'axe 2 et 3. 
+```{r eval=FALSE}
+explor(acp)
+```
+Avec explor, nous avons representation dynamqiue de nosn resultats. 
+```{r eval=FALSE}
+res <- explor::prepare_results(acp)
+explor::PCA_var_plot(res, xax = 2, yax = 3,
+                     var_sup = FALSE, var_lab_min_contrib = 0,
+                     col_var = NULL, labels_size = 16, scale_unit = TRUE,
+                     transitions = TRUE, labels_positions = NULL,
+                     xlim = c(-1.1, 1.1), ylim = c(-1.1, 1.1))
+
+explor::PCA_ind_plot(res, xax = 2, yax = 3,
+                     ind_sup = TRUE,
+                     ind_lab_min_contrib = 0, col_var = NULL, 
+                     symbol_var = NULL,
+                     opacity_var = NULL, size_var = NULL, 
+                     size_range = c(10, 300),
+                     lab_var = NULL, zoom_callback = NULL, 
+                     in_explor = FALSE)
+
+```
+
+## Clustering
+
+Nous pouvons pousser l'analyse avec du clustering. on va faire une CAH à partir des resultat de l'acp
+
+```{r eval=FALSE}
+class <- HCPC(acp, graph = FALSE)
+```
+
+
+## Conclusion 
+
+L'émission du CO2 a augmenté au cours de ces 50 dernières années. Nous l'avons constaté, que des effots doivent etre faits dans tous les secteurs pour reduire ces emissions. L'émission par habitant illustre mieux la position que prend chaque pays. Cela peut etre un levier sur lequel les differents pays doivent ajuster pour reduire les emissions. 
+
+Les pays avec des caractéristiques de developpement similiares, emettent des quantités plus ou moins similaires par habitant. 
+
+
+
